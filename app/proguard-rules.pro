@@ -1,0 +1,2 @@
+-keep class org.eclipse.paho.** { *; }
+-keep class org.json.** { *; }
