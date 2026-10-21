@@ -1,39 +1,73 @@
-name: Build APK
+name: Publish APK Release
 
 on:
   push:
     branches: [ main, master ]
+    paths:
+      - 'apk-distribution/app-debug.apk'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      - name: Validate APK and checksum
+        run: |
+          set -euo pipefail
+          APK="apk-distribution/app-debug.apk"
+          SUM="apk-distribution/app-debug.apk.sha256"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+          [ -f "$APK" ] || { echo "ERROR: $APK missing"; exit 1; }
+          [ -s "$APK" ] || { echo "ERROR: $APK empty"; exit 1; }
+          [ -f "$SUM" ] || { echo "ERROR: $SUM missing"; exit 1; }
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.6
+          unzip -tq "$APK" || { echo "ERROR: APK archive corrupt"; exit 1; }
 
-      - name: Build debug APK
-        working-directory: fleet-agent
-        run: gradle --no-daemon assembleDebug
+          EXPECTED=$(awk '{print $1}' "$SUM")
+          ACTUAL=$(sha256sum "$APK" | awk '{print $1}')
+          [ "$EXPECTED" = "$ACTUAL" ] || {
+            echo "ERROR: checksum mismatch expected=$EXPECTED actual=$ACTUAL"
+            exit 1
+          }
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: fleet-agent-debug
-          path: fleet-agent/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          echo "VALIDATION OK"
+          echo "APK_SIZE=$(stat -c%s "$APK")" >> $GITHUB_ENV
+          echo "APK_SHA=$ACTUAL"             >> $GITHUB_ENV
+
+      - name: Create release and upload APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="debug-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          APK="apk-distribution/app-debug.apk"
+
+          gh release create "$TAG" "$APK#app-debug.apk" \
+            --title "Debug APK ${TAG}" \
+            --notes "Automatic APK release from commit ${GITHUB_SHA}." \
+            --latest
+
+          echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          echo "RELEASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> $GITHUB_ENV
+          echo "DOWNLOAD_URL=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/app-debug.apk" >> $GITHUB_ENV
+
+      - name: Job summary
+        run: |
+          {
+            echo "## APK Release Published"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Release tag | \`${{ env.RELEASE_TAG }}\` |"
+            echo "| APK size | \`${{ env.APK_SIZE }}\` bytes |"
+            echo "| SHA-256 | \`${{ env.APK_SHA }}\` |"
+            echo "| Release page | ${{ env.RELEASE_URL }} |"
+            echo "| Direct download | ${{ env.DOWNLOAD_URL }} |"
+          } >> $GITHUB_STEP_SUMMARY
