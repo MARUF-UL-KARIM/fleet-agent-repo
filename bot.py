@@ -1,10 +1,9 @@
-import os, io, json, base64, asyncio, logging, time, threading
+import os, io, json, base64, asyncio, logging, time
 from flask import Flask, request
 from telegram import Update
 import paho.mqtt.client as mqtt
 import redis.asyncio as redis
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from amqtt.broker import Broker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("relay")
@@ -130,31 +129,20 @@ def webhook():
 @flask_app.route("/")
 def index(): return "Fleet Relay is running"
 
-def run_broker():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    broker_config = {
-        'listeners': {'default': {'type': 'tcp', 'bind': '0.0.0.0:1883'}},
-        'auth': {'allow-anonymous': True},
-    }
-    loop.run_until_complete(Broker(broker_config).start())
-    loop.run_forever()
-
 def main():
     global LOOP
     LOOP = asyncio.new_event_loop()
     asyncio.set_event_loop(LOOP)
 
     LOOP.run_until_complete(application.initialize())
-
-    threading.Thread(target=run_broker, daemon=True).start()
-    time.sleep(2)
+    LOOP.run_until_complete(application.start())
+    
+    # পাবলিক MQTT ব্রোকারে কানেক্ট করা হচ্ছে
+    MQ.connect("broker.hivemq.com", 1883, 60)
+    MQ.loop_start()
 
     LOOP.run_until_complete(application.bot.set_webhook(url=f"{RENDER_URL}/{TG_TOKEN}"))
     log.info(f"Webhook set to {RENDER_URL}/{TG_TOKEN}")
-
-    MQ.connect("127.0.0.1", 1883, 60)
-    MQ.loop_start()
 
     flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 

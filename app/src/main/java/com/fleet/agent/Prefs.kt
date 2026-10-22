@@ -6,8 +6,7 @@ import java.util.UUID
 
 object Prefs {
     private const val FILE = "fleet_prefs"
-    private fun sp(ctx: Context): SharedPreferences =
-        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun sp(ctx: Context): SharedPreferences = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     fun deviceId(ctx: Context): String {
         val s = sp(ctx)
@@ -19,28 +18,11 @@ object Prefs {
         return id
     }
 
-    fun deviceName(ctx: Context): String {
-        val s = sp(ctx)
-        var n = s.getString("device_name", null)
-        if (n == null) {
-            n = "${android.os.Build.MODEL}-${deviceId(ctx)}"
-            s.edit().putString("device_name", n).apply()
-        }
-        return n
-    }
+    fun deviceName(ctx: Context): String = "${android.os.Build.MODEL}-${deviceId(ctx)}"
 
-    fun brokerHost(ctx: Context): String =
-        sp(ctx).getString("broker_host", BuildConfig.BROKER_HOST)!!
-
-    fun setBrokerHost(ctx: Context, host: String) =
-        sp(ctx).edit().putString("broker_host", host).apply()
-
-    fun mqttUser(ctx: Context): String =
-        sp(ctx).getString("mqtt_user", BuildConfig.MQTT_USER)!!
-
-    fun mqttPass(ctx: Context): String =
-        sp(ctx).getString("mqtt_pass", BuildConfig.MQTT_PASS)!!
-
+    // অ্যাপের ডিফল্ট ব্রোকার
+    fun brokerHost(ctx: Context): String = sp(ctx).getString("broker_host", "tcp://broker.hivemq.com:1883")!!
+    
     fun projectionCode(ctx: Context): Int = sp(ctx).getInt("proj_code", -1)
     fun projectionData(ctx: Context): String? = sp(ctx).getString("proj_data", null)
 

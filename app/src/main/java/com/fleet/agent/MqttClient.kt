@@ -25,8 +25,6 @@ class MqttClient(
             isCleanSession = true
             keepAliveInterval = 30
             connectionTimeout = 10
-            userName = Prefs.mqttUser(ctx)
-            password = Prefs.mqttPass(ctx).toCharArray()
         }
         c.setCallback(object : MqttCallbackExtended {
             override fun connectComplete(reconnect: Boolean, serverURI: String?) {
@@ -44,8 +42,6 @@ class MqttClient(
         c.connect(opts)
         client = c
     }
-
-    fun isConnected(): Boolean = client?.isConnected == true
 
     fun publishEvent(obj: JSONObject, qos: Int = 1): Boolean {
         val c = client ?: return false

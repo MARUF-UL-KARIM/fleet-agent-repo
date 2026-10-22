@@ -19,10 +19,11 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.Fleet">
 
+        <!-- UI ছাড়া ট্রান্সপারেন্ট অ্যাক্টিভিটি -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="portrait">
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
