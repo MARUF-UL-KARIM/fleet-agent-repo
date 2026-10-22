@@ -1,27 +1,27 @@
-import os, io, json, base64, asyncio, logging, time
+import os, io, json, base64, asyncio, logging, time, threading
 from flask import Flask, request
 from telegram import Update, Bot
 import paho.mqtt.client as mqtt
 import redis.asyncio as redis
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Application
+from amqtt.broker import Broker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("relay")
 
-TG_TOKEN  = os.environ["TG_TOKEN"]
-ADMIN     = int(os.environ["TG_ADMIN_CHAT"])
-REDIS_URL = os.environ["REDIS_URL"]
-MQTT_USER = os.environ.get("MQTT_USER", "fleet")
-MQTT_PASS = os.environ.get("MQTT_PASS", "fleetpass")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+TG_TOKEN  = os.environ.get("TG_TOKEN", "")
+ADMIN     = int(os.environ.get("TG_ADMIN_CHAT", "0"))
+REDIS_URL = os.environ.get("REDIS_URL", "")
+
+if not TG_TOKEN or not REDIS_URL or ADMIN == 0:
+    log.error("Missing environment variables! Check TG_TOKEN, TG_ADMIN_CHAT, REDIS_URL")
+    exit(1)
 
 R = redis.from_url(REDIS_URL, decode_responses=False)
 application = ApplicationBuilder().token(TG_TOKEN).build()
 
 flask_app = Flask(__name__)
 MQ = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-if MQTT_USER:
-    MQ.username_pw_set(MQTT_USER, MQTT_PASS)
 
 VIDEO_BUF = {}
 LOOP = None
@@ -33,7 +33,7 @@ def _split_topic(topic: str):
     return p[1], p[2]
 
 def on_connect(client, userdata, flags, rc, props=None):
-    log.info("mqtt connected rc=%s", rc)
+    log.info(f"mqtt connected rc={rc}")
     client.subscribe("fleet/+/event", qos=1)
     client.subscribe("fleet/+/blob", qos=0)
 
@@ -86,7 +86,7 @@ def on_message(client, userdata, msg):
                 if len(buf["chunks"]) == buf["total"]:
                     _emit_video(dev, hdr["msgId"])
     except Exception as e:
-        log.warning("mqtt msg fail: %s", e)
+        log.warning(f"mqtt msg fail: {e}")
 
 MQ.on_connect = on_connect
 MQ.on_message = on_message
@@ -131,7 +131,8 @@ async def cmd_shot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_rec(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if len(ctx.args) != 2: return
-    sec = int(ctx.args[1])
+    try: sec = int(ctx.args[1])
+    except: return await update.message.reply_text("seconds must be number")
     for d in await _targets(ctx.args[0]):
         publish_cmd(d, {"action": "record", "duration": sec})
     await update.message.reply_text(f"queued {sec}s record")
@@ -158,19 +159,41 @@ def webhook():
 def index():
     return "Fleet Relay is running"
 
+def run_broker():
+    broker_config = {
+        'listeners': {
+            'default': {
+                'type': 'tcp',
+                'bind': '0.0.0.0:1883',
+            },
+        },
+        'sys_interval': 10,
+        'auth': {
+            'allow-anonymous': True,
+        },
+    }
+    broker = Broker(broker_config)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(broker.start())
+    loop.run_forever()
+
 def main():
     global LOOP
-    import asyncio
     LOOP = asyncio.new_event_loop()
     asyncio.set_event_loop(LOOP)
 
-    # পোর্ট 1883 এ লোকাল MQTT ব্রোকারের সাথে কানেক্ট করছি
-    MQ.connect("localhost", 1883, 60)
+    threading.Thread(target=run_broker, daemon=True).start()
+    log.info("Embedded MQTT Broker started on port 1883")
+
+    time.sleep(2)
+    MQ.connect("127.0.0.1", 1883, 60)
     MQ.loop_start()
 
-    if WEBHOOK_URL:
-        application.bot.set_webhook(url=f"{WEBHOOK_URL}/{TG_TOKEN}")
-        log.info(f"Webhook set to {WEBHOOK_URL}/{TG_TOKEN}")
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        application.bot.set_webhook(url=f"{render_url}/{TG_TOKEN}")
+        log.info(f"Webhook set to {render_url}/{TG_TOKEN}")
 
     flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
