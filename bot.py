@@ -160,21 +160,17 @@ def index():
     return "Fleet Relay is running"
 
 def run_broker():
-    broker_config = {
-        'listeners': {
-            'default': {
-                'type': 'tcp',
-                'bind': '0.0.0.0:1883',
-            },
-        },
-        'sys_interval': 10,
-        'auth': {
-            'allow-anonymous': True,
-        },
-    }
-    broker = Broker(broker_config)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
+    broker_config = {
+        'listeners': {
+            'default': {'type': 'tcp', 'bind': '0.0.0.0:1883'},
+        },
+        'sys_interval': 10,
+        'auth': {'allow-anonymous': True},
+    }
+    broker = Broker(broker_config)
     loop.run_until_complete(broker.start())
     loop.run_forever()
 
@@ -184,16 +180,21 @@ def main():
     asyncio.set_event_loop(LOOP)
 
     threading.Thread(target=run_broker, daemon=True).start()
-    log.info("Embedded MQTT Broker started on port 1883")
-
-    time.sleep(2)
-    MQ.connect("127.0.0.1", 1883, 60)
-    MQ.loop_start()
+    log.info("Embedded MQTT Broker starting on port 1883...")
+    
+    time.sleep(3)
 
     render_url = os.environ.get("RENDER_EXTERNAL_URL")
     if render_url:
         application.bot.set_webhook(url=f"{render_url}/{TG_TOKEN}")
         log.info(f"Webhook set to {render_url}/{TG_TOKEN}")
+
+    try:
+        MQ.connect("127.0.0.1", 1883, 60)
+        MQ.loop_start()
+        log.info("Connected to MQTT Broker successfully.")
+    except Exception as e:
+        log.error(f"Failed to connect to local MQTT broker: {e}")
 
     flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
