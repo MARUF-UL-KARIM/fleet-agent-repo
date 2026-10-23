@@ -1,0 +1,9 @@
+allprojects {
+    afterEvaluate { project ->
+        if (project.plugins.hasPlugin('com.android.application') || project.plugins.hasPlugin('com.android.library')) {
+            project.dependencies {
+                implementation 'com.google.android.material:material:1.11.0'
+            }
+        }
+    }
+}
